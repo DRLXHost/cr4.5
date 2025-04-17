@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comic Panel Reader</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        overflow: hidden;
+        background-color: #000;
+        touch-action: none;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      .reader-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .comic-container {
+        position: absolute;
+        will-change: transform;
+        transform-origin: 0 0;
+        transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+      }
+
+      .comic-image {
+        display: block;
+        user-select: none;
+        -webkit-user-drag: none;
+        width: 100%;
+        height: auto;
+        will-change: transform;
+      }
+
+      .panel-highlight {
+        position: absolute;
+        pointer-events: none;
+        z-index: 10;
+        top: 0;
+        left: 0;
+      }
+
+      /* Circular Navigation Buttons */
+      .nav-button {
+        position: fixed;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 60px;
+        height: 60px;
+        background-color: #ffd700;
+        border: none;
+        border-radius: 50%;
+        color: black;
+        font-size: 30px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        z-index: 20;
+        opacity: 0.8;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+
+      /* Mobile styles */
+      @media (max-width: 768px) {
+        .nav-button {
+          width: 50px;
+          height: 50px;
+          font-size: 24px;
+          padding: 0;
+        }
+
+        #prevBtn {
+          left: 0;
+        }
+
+        #nextBtn {
+          right: 0;
+        }
+      }
+
+      .nav-button:hover,
+      .nav-button:focus {
+        opacity: 1;
+      }
+
+      .nav-button:active {
+        opacity: 1;
+      }
+
+      .nav-button:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      #prevBtn {
+        left: 20px;
+      }
+
+      #nextBtn {
+        right: 20px;
+      }
+
+      /* View Mode Selector */
+      .view-mode-selector {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 30;
+        display: flex;
+        gap: 10px;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+      }
+
+      .view-mode-selector.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .view-mode-btn {
+        padding: 8px 12px;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+      }
+
+      .view-mode-btn:hover {
+        background-color: rgba(255, 213, 0, 0.3);
+      }
+
+      .view-mode-btn.active {
+        background-color: rgba(255, 213, 0, 0.7);
+        color: black;
+      }
+
+      /* Progress bar */
+      .progress-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background-color: rgba(255, 255, 255, 0.2);
+        z-index: 30;
+      }
+
+      .progress-bar {
+        height: 100%;
+        background-color: rgba(255, 213, 0, 0.8);
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+
+      .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        display: none; /* Hide loading overlay completely */
+        justify-content: center;
+        align-items: center;
+        color: white;
+        font-size: 4vmin;
+        z-index: 100;
+      }
+
+      .hidden-image {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Swipe indicators */
+      .swipe-indicator {
+        position: fixed;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        background-color: rgba(255, 213, 0, 0.5);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 24px;
+        z-index: 5;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+      }
+
+      #swipeLeft {
+        left: 10px;
+      }
+
+      #swipeRight {
+        right: 10px;
+      }
+
+      .swipe-indicator.active {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading" class="loading-overlay">Loading comic...</div>
+
+    <div class="progress-container">
+      <div id="progressBar" class="progress-bar"></div>
+    </div>
+
+    <div class="view-mode-selector" id="viewModeSelector">
+      <button id="panelViewBtn" class="view-mode-btn active">Panel View</button>
+      <button id="pageViewBtn" class="view-mode-btn">Page View</button>
+    </div>
+
+    <div class="reader-container">
+      <div id="comicContainer" class="comic-container">
+        <img id="comicImage" class="comic-image" src="" alt="Comic Page" />
+        <svg
+          id="panelHighlight"
+          class="panel-highlight"
+          preserveAspectRatio="none"
+        ></svg>
+      </div>
+    </div>
+
+    <div id="swipeLeft" class="swipe-indicator">←</div>
+    <div id="swipeRight" class="swipe-indicator">→</div>
+
+    <button id="prevBtn" class="nav-button">←</button>
+    <button id="nextBtn" class="nav-button">→</button>
+
+    <!-- Container for preloaded images -->
+    <div id="preloadContainer" style="display:none;"></div>
+
+    <script>
+      // Configuration
+      const PANEL_PADDING = 0.08;
+      const HIGHLIGHT_COLOR = "black";
+      const OVERLAY_OPACITY = 0.9;
+      const VIEW_MODE_TIMEOUT = 7000;
+      const SWIPE_THRESHOLD = 50;
+      const PRELOAD_AHEAD = 3; // Number of pages to preload ahead
+      
+      // Global variables
+      let currentPage = 0;
+      let currentPanelIndex = 0;
+      let panelData = null;
+      let currentScale = 1;
+      let isPanelView = true;
+      let viewModeTimeout;
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let isSwiping = false;
+      let allPanels = [];
+      let globalPanelIndex = 0;
+      let pageImages = {};
+      let isPageReady = {}; // Track which pages are ready to display
+      let isTransitioning = false;
+      let rafId = null;
+      let svgNamespace = "http://www.w3.org/2000/svg";
+      let preloadQueue = [];
+      
+      // Cache DOM elements
+      const comicContainer = document.getElementById("comicContainer");
+      const comicImage = document.getElementById("comicImage");
+      const panelHighlight = document.getElementById("panelHighlight");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const progressBar = document.getElementById("progressBar");
+      const loadingElement = document.getElementById("loading");
+      const panelViewBtn = document.getElementById("panelViewBtn");
+      const pageViewBtn = document.getElementById("pageViewBtn");
+      const viewModeSelector = document.getElementById("viewModeSelector");
+      const swipeLeft = document.getElementById("swipeLeft");
+      const swipeRight = document.getElementById("swipeRight");
+      const preloadContainer = document.getElementById("preloadContainer");
+
+      // Initialize the reader
+      loadPanelData();
+      setupEventListeners();
+      resetViewModeTimer();
+
+      // Load panel data from JSON
+      async function loadPanelData() {
+        try {
+          const response = await fetch("panels.json");
+          panelData = await response.json();
+
+          if (!panelData.pages || panelData.pages.length === 0) {
+            console.error("No pages found in panel data");
+            return;
+          }
+
+          // Create a flattened array of all panels with page information
+          flattenPanelData();
+          
+          // Start aggressive preloading of all pages
+          preloadAllPages();
+          
+          // Initialize with the first panel
+          initializeReader();
+        } catch (error) {
+          console.error("Error loading panel data:", error);
+        }
+      }
+
+      // Flatten panel data into a single array for continuous navigation
+      function flattenPanelData() {
+        allPanels = [];
+
+        panelData.pages.forEach((page, pageIndex) => {
+          if (page.panels && page.panels.length > 0) {
+            page.panels.forEach((panel, panelIndex) => {
+              allPanels.push({
+                pageIndex: pageIndex,
+                panelIndex: panelIndex,
+                points: panel.points,
+                pageSrc: page.image,
+              });
+            });
+          }
+        });
+      }
+
+      // Aggressively preload all pages in background
+      function preloadAllPages() {
+        // Create a queue for preloading pages
+        preloadQueue = [...panelData.pages.map(page => page.image)];
+        
+        // Start preloading process
+        preloadNextInQueue();
+      }
+      
+      // Process preload queue with multiple concurrent loads
+      function preloadNextInQueue() {
+        // Process up to 3 images at once
+        const concurrentLoads = 3;
+        
+        for (let i = 0; i < concurrentLoads; i++) {
+          if (preloadQueue.length > 0) {
+            const src = preloadQueue.shift();
+            preloadImage(src);
+          }
+        }
+      }
+
+      // Helper function to preload images with priority
+      function preloadImage(src) {
+        if (pageImages[src]) return Promise.resolve(pageImages[src]);
+
+        return new Promise((resolve) => {
+          const img = new Image();
+          
+          // Add loading priority
+          img.loading = "eager";
+          if ('fetchPriority' in img) {
+            img.fetchPriority = "high";
+          }
+          
+          // Add decoding hint
+          img.decoding = "async";
+          
+          img.onload = () => {
+            pageImages[src] = img;
+            isPageReady[src] = true;
+            
+            // Continue preloading queue
+            if (preloadQueue.length > 0) {
+              setTimeout(preloadNextInQueue, 50);
+            }
+            
+            resolve(img);
+          };
+          
+          img.onerror = () => {
+            console.error(`Failed to load image: ${src}`);
+            if (preloadQueue.length > 0) {
+              setTimeout(preloadNextInQueue, 50);
+            }
+            resolve(null);
+          };
+          
+          img.src = src;
+          
+          // Adding to DOM can help with some browsers' resource loading
+          preloadContainer.appendChild(img);
+          img.className = "hidden-image";
+        });
+      }
+
+      function initializeReader() {
+        if (allPanels.length === 0) return;
+
+        const panel = allPanels[globalPanelIndex];
+        currentPage = panel.pageIndex;
+        currentPanelIndex = panel.panelIndex;
+
+        // Set initial image
+        if (pageImages[panel.pageSrc]) {
+          comicImage.src = pageImages[panel.pageSrc].src;
+        } else {
+          comicImage.src = panel.pageSrc;
+        }
+
+        comicImage.onload = function() {
+          panelHighlight.setAttribute("width", this.naturalWidth);
+          panelHighlight.setAttribute("height", this.naturalHeight);
+
+          if (isPanelView) {
+            goToPanel(globalPanelIndex);
+          } else {
+            showFullPage();
+          }
+        };
+      }
+
+      // Go to a specific panel by global index with smooth transitions
+      function goToPanel(index) {
+        if (index < 0 || index >= allPanels.length || isTransitioning) return;
+        
+        isTransitioning = true;
+        
+        const panel = allPanels[index];
+        const isPagingRequired = panel.pageIndex !== currentPage;
+
+        // If we need to change the page
+        if (isPagingRequired) {
+          currentPage = panel.pageIndex;
+          currentPanelIndex = panel.panelIndex;
+          globalPanelIndex = index;
+
+          if (pageImages[panel.pageSrc]) {
+            comicImage.src = pageImages[panel.pageSrc].src;
+          } else {
+            comicImage.src = panel.pageSrc;
+          }
+          
+          // The rest will be handled by onload
+          return;
+        }
+
+        // Same page, just change the panel
+        globalPanelIndex = index;
+        currentPanelIndex = panel.panelIndex;
+        
+        // Use requestAnimationFrame for smoother transitions
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          centerOnCurrentPanel();
+          isTransitioning = false;
+        });
+      }
+
+      function centerOnCurrentPanel() {
+        const panel = allPanels[globalPanelIndex];
+        if (!panel) return;
+
+        // Calculate panel boundaries from points
+        const bounds = calculatePanelBounds(panel.points);
+
+        // Create a padded bounds for centering and scaling
+        const paddedBounds = {
+          x: bounds.x - bounds.width * PANEL_PADDING,
+          y: bounds.y - bounds.height * PANEL_PADDING,
+          width: bounds.width * (1 + PANEL_PADDING * 2),
+          height: bounds.height * (1 + PANEL_PADDING * 2),
+        };
+
+        // Calculate scale based on viewport size
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        const scaleX = viewportWidth / paddedBounds.width;
+        const scaleY = viewportHeight / paddedBounds.height;
+        currentScale = Math.min(scaleX, scaleY);
+
+        // Position the panel in the center of the viewport
+        const paddedCenterX = paddedBounds.x + paddedBounds.width / 2;
+        const paddedCenterY = paddedBounds.y + paddedBounds.height / 2;
+
+        const translateX = viewportWidth / 2 - paddedCenterX * currentScale;
+        const translateY = viewportHeight / 2 - paddedCenterY * currentScale;
+
+        // Apply the transformation to the comic container using transform3d for hardware acceleration
+        comicContainer.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${currentScale})`;
+
+        // Draw the panel highlight with proper masking
+        drawPanelHighlight(panel.points);
+
+        // Update UI
+        updateProgress();
+        updateNavButtons();
+      }
+
+      function showFullPage() {
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const imgWidth = comicImage.naturalWidth;
+        const imgHeight = comicImage.naturalHeight;
+
+        // Calculate scale to fit image to screen
+        const scaleX = viewportWidth / imgWidth;
+        const scaleY = viewportHeight / imgHeight;
+        currentScale = Math.min(scaleX, scaleY);
+
+        // Center the image
+        const translateX = (viewportWidth - imgWidth * currentScale) / 2;
+        const translateY = (viewportHeight - imgHeight * currentScale) / 2;
+
+        // Use transform3d for hardware acceleration
+        comicContainer.style.transform = `translate3d(${translateX}px, ${translateY}px, 0) scale(${currentScale})`;
+
+        // Clear any panel highlights
+        panelHighlight.innerHTML = '';
+
+        // Update UI
+        updateProgress();
+        updateNavButtons();
+        
+        isTransitioning = false;
+      }
+
+      function calculatePanelBounds(points) {
+        if (!points || points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+
+        points.forEach((point) => {
+          minX = Math.min(minX, point.x);
+          minY = Math.min(minY, point.y);
+          maxX = Math.max(maxX, point.x);
+          maxY = Math.max(maxY, point.y);
+        });
+
+        return {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY,
+        };
+      }
+
+      // Optimized panel highlight drawing
+      function drawPanelHighlight(points) {
+        panelHighlight.innerHTML = '';
+        
+        if (!points || points.length === 0) return;
+
+        // Get image dimensions
+        const imgWidth = parseInt(panelHighlight.getAttribute("width"), 10);
+        const imgHeight = parseInt(panelHighlight.getAttribute("height"), 10);
+        
+        if (isNaN(imgWidth) || isNaN(imgHeight)) return;
+
+        // Create a mask element
+        const mask = document.createElementNS(svgNamespace, "mask");
+        mask.setAttribute("id", "panel-mask");
+
+        // Start with a white (visible) background
+        const background = document.createElementNS(svgNamespace, "rect");
+        background.setAttribute("x", "0");
+        background.setAttribute("y", "0");
+        background.setAttribute("width", imgWidth);
+        background.setAttribute("height", imgHeight);
+        background.setAttribute("fill", "white");
+
+        // Panel polygon (black = hidden)
+        const polygon = document.createElementNS(svgNamespace, "polygon");
+        const pointsString = points.map((p) => `${p.x},${p.y}`).join(" ");
+        polygon.setAttribute("points", pointsString);
+        polygon.setAttribute("fill", "black");
+
+        // Create stroke for panel outline (outside the mask)
+        const outlinePolygon = document.createElementNS(svgNamespace, "polygon");
+        outlinePolygon.setAttribute("points", pointsString);
+        outlinePolygon.setAttribute("fill", "none");
+        outlinePolygon.setAttribute("stroke", HIGHLIGHT_COLOR);
+        outlinePolygon.setAttribute("stroke-width", "3");
+        outlinePolygon.setAttribute("stroke-linejoin", "round");
+
+        // Add elements to mask
+        mask.appendChild(background);
+        mask.appendChild(polygon);
+
+        // Create the dark overlay
+        const overlay = document.createElementNS(svgNamespace, "rect");
+        overlay.setAttribute("x", "0");
+        overlay.setAttribute("y", "0");
+        overlay.setAttribute("width", imgWidth);
+        overlay.setAttribute("height", imgHeight);
+        overlay.setAttribute("fill", `rgba(0, 0, 0, ${OVERLAY_OPACITY})`);
+
+        // Add elements to the SVG in correct order
+        panelHighlight.appendChild(mask);
+        panelHighlight.appendChild(overlay);
+        overlay.setAttribute("mask", "url(#panel-mask)");
+        panelHighlight.appendChild(outlinePolygon);
+      }
+
+      function updateProgress() {
+        if (isPanelView && allPanels.length > 0) {
+          // Calculate progress based on global panel index
+          const progress = ((globalPanelIndex + 1) / allPanels.length) * 100;
+          progressBar.style.width = `${progress}%`;
+        } else {
+          // In page view, show progress based on current page
+          const progress = ((currentPage + 1) / panelData.pages.length) * 100;
+          progressBar.style.width = `${progress}%`;
+        }
+      }
+
+      function updateNavButtons() {
+        if (isPanelView) {
+          prevBtn.disabled = globalPanelIndex === 0;
+          nextBtn.disabled = globalPanelIndex === allPanels.length - 1;
+        } else {
+          prevBtn.disabled = currentPage === 0;
+          nextBtn.disabled = currentPage === panelData.pages.length - 1;
+        }
+      }
+
+      function setupEventListeners() {
+        // Handle image loading with optimized event
+        comicImage.addEventListener("load", function() {
+          panelHighlight.setAttribute("width", this.naturalWidth || 100);
+          panelHighlight.setAttribute("height", this.naturalHeight || 100);
+          
+          if (isPanelView) {
+            centerOnCurrentPanel();
+          } else {
+            showFullPage();
+          }
+          
+          isTransitioning = false;
+        });
+
+        // Touch events with passive option where possible
+        document.addEventListener("touchstart", handleTouchStart, { passive: true });
+        document.addEventListener("touchmove", handleTouchMove, { passive: true });
+        document.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+        // Unified click handler
+        document.addEventListener("click", handleGlobalClick);
+        
+        // Touch events for navigation buttons
+        nextBtn.addEventListener("touchstart", handleNextTouch, { passive: false });
+        prevBtn.addEventListener("touchstart", handlePrevTouch, { passive: false });
+
+        // Keyboard navigation
+        document.addEventListener("keydown", handleKeyDown);
+
+        // Handle window resize with debounce
+        let resizeTimer;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            if (isPanelView) {
+              centerOnCurrentPanel();
+            } else {
+              showFullPage();
+            }
+          }, 100);
+        });
+        
+        // Handle visibility changes to optimize preloading
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === 'visible') {
+            // Resume preloading when tab is visible
+            preloadNextInQueue();
+          }
+        });
+      }
+      
+      // Event handler for touch events
+      function handleTouchStart(e) {
+        if (isTransitioning) return;
+        
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        isSwiping = true;
+      }
+
+      function handleTouchMove(e) {
+        if (!isSwiping || isTransitioning) return;
+
+        const touch = e.touches[0];
+        const diffX = touch.clientX - touchStartX;
+        const diffY = touch.clientY - touchStartY;
+
+        // Only show swipe indicator if primarily horizontal movement
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+          if (diffX > 0) {
+            swipeRight.classList.remove("active");
+            swipeLeft.classList.add("active");
+          } else {
+            swipeLeft.classList.remove("active");
+            swipeRight.classList.add("active");
+          }
+        }
+      }
+
+      function handleTouchEnd(e) {
+        if (!isSwiping || isTransitioning) return;
+
+        const touch = e.changedTouches[0];
+        const diffX = touch.clientX - touchStartX;
+        const diffY = touch.clientY - touchStartY;
+
+        swipeLeft.classList.remove("active");
+        swipeRight.classList.remove("active");
+
+        // Only trigger swipe if movement is primarily horizontal
+        if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > SWIPE_THRESHOLD) {
+          if (diffX > 0) {
+            goToPrev();
+          } else {
+            goToNext();
+          }
+        }
+
+        isSwiping = false;
+      }
+      
+      // Delegated click handler for UI elements
+      function handleGlobalClick(e) {
+        if (e.target === nextBtn) {
+          goToNext();
+        } else if (e.target === prevBtn) {
+          goToPrev();
+        } else if (e.target === panelViewBtn) {
+          setViewMode(true);
+          resetViewModeTimer();
+        } else if (e.target === pageViewBtn) {
+          setViewMode(false);
+          resetViewModeTimer();
+        }
+      }
+      
+      // Touch handlers for navigation buttons
+      function handleNextTouch(e) {
+        e.preventDefault();
+        goToNext();
+      }
+      
+      function handlePrevTouch(e) {
+        e.preventDefault();
+        goToPrev();
+      }
+
+      function handleKeyDown(e) {
+        if (isTransitioning) return;
+        
+        switch (e.key) {
+          case "ArrowLeft":
+            goToPrev();
+            break;
+          case "ArrowRight":
+            goToNext();
+            break;
+          case " ":
+          case "Spacebar":
+            // Spacebar toggles between panel/page view
+            setViewMode(!isPanelView);
+            resetViewModeTimer();
+            break;
+        }
+      }
+
+      function goToNext() {
+        if (isTransitioning) return;
+        
+        if (isPanelView) {
+          // Go to next panel in the flattened array
+          if (globalPanelIndex < allPanels.length - 1) {
+            goToPanel(globalPanelIndex + 1);
+          }
+        } else {
+          // In page view, move to next page
+          if (currentPage < panelData.pages.length - 1) {
+            isTransitioning = true;
+            currentPage++;
+
+            // Find the first panel on this page to set the global index correctly
+            for (let i = 0; i < allPanels.length; i++) {
+              if (allPanels[i].pageIndex === currentPage) {
+                globalPanelIndex = i;
+                currentPanelIndex = 0;
+                break;
+              }
+            }
+            
+            // Use the cached image if available for instant transition
+            const nextPageSrc = panelData.pages[currentPage].image;
+            if (pageImages[nextPageSrc]) {
+              comicImage.src = pageImages[nextPageSrc].src;
+            } else {
+              comicImage.src = nextPageSrc;
+            }
+          }
+        }
+      }
+
+      function goToPrev() {
+        if (isTransitioning) return;
+        
+        if (isPanelView) {
+          // Go to previous panel in the flattened array
+          if (globalPanelIndex > 0) {
+            goToPanel(globalPanelIndex - 1);
+          }
+        } else {
+          // In page view, move to previous page
+          if (currentPage > 0) {
+            isTransitioning = true;
+            currentPage--;
+
+            // Find the first panel on this page to set the global index correctly
+            for (let i = 0; i < allPanels.length; i++) {
+              if (allPanels[i].pageIndex === currentPage) {
+                globalPanelIndex = i;
+                currentPanelIndex = 0;
+                break;
+              }
+            }
+            
+            // Use the cached image if available for instant transition
+            const prevPageSrc = panelData.pages[currentPage].image;
+            if (pageImages[prevPageSrc]) {
+              comicImage.src = pageImages[prevPageSrc].src;
+            } else {
+              comicImage.src = prevPageSrc;
+            }
+          }
+        }
+      }
+
+      function setViewMode(panelView) {
+        isPanelView = panelView;
+        panelViewBtn.classList.toggle("active", panelView);
+        pageViewBtn.classList.toggle("active", !panelView);
+
+        if (panelView) {
+          centerOnCurrentPanel();
+        } else {
+          showFullPage();
+        }
+      }
+
+      function showViewModeControls() {
+        viewModeSelector.classList.remove("hidden");
+      }
+
+      function hideViewModeControls() {
+        viewModeSelector.classList.add("hidden");
+      }
+
+      function resetViewModeTimer() {
+        showViewModeControls();
+        clearTimeout(viewModeTimeout);
+        viewModeTimeout = setTimeout(hideViewModeControls, VIEW_MODE_TIMEOUT);
+      }
+    </script>
+  </body>
+</html>
